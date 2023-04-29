@@ -9,7 +9,7 @@ class Applicant implements Employee
         return true;
     }
 
-    public function salary()
+    public function salary(): float
     {
         // TODO: Implement salary() method.
     }

@@ -5,75 +5,91 @@ namespace App\Http\Controllers;
 use App\Models\Like;
 use App\Models\Post;
 use Illuminate\Http\Request;
+use App\Http\Requests\ReactionRequest;
+use Illuminate\Http\Response;
+use App\Http\Resources\PostResource;
 
 class PostController extends Controller
 {
     public function list()
     {
-        $posts = Post::get();
-
-        $data = collect();
-        foreach ($posts as $post) {
-            $data->add([
-                'id' => $post->id,
-                'title' => $post->title,
-                'description' => $post->description,
-                'tags' => $post->tags,
-                'like_counts' => $post->likes->count(),
-                'created_at' => $post->created_at,
-            ]);
-        }
-
+        $posts = Post::withCount('likes')->get();
+        
+        $data = PostResource::collection($posts);
+        
         return response()->json([
             'data' => $data,
         ]);
     }
 
-    public function toggleReaction(Request $request)
+    public function toggleReaction(ReactionRequest $request)
+    {                
+        $responseOwnPost = $this->checkOwnPost($request);
+        $responseExist = $this->checkAlreadyExist($request);
+
+        if($responseOwnPost || $responseExist)
+        {
+            return response()->json($responseOwnPost ?? $responseExist);
+        }
+        
+        $responseCreate = $this->createReaction($request);
+        return response()->json($responseCreate);
+    }
+
+    public function checkOwnPost($request)
     {
-        $request->validate([
-            'post_id' => 'required|int|exists:posts,id',
-            'like' => 'required|boolean',
-        ]);
-
         $post = Post::find($request->post_id);
-        if (! $post) {
-            return response()->json([
-                'status' => 404,
-                'message' => 'model not found',
-            ]);
+
+        if(!$post)
+        {
+            return [
+                'status' => Response::HTTP_NOT_FOUND,
+                'message' => 'Post not found'
+            ];
+        }
+        
+        if($post->author_id == auth()->id()) {
+            return [
+                'status' => Response::HTTP_BAD_REQUEST,
+                'message' => 'You cannot like your post'
+            ];
         }
 
-        if ($post->user_id == auth()->id()) {
-            return response()->json([
-                'status' => 500,
-                'message' => 'You cannot like your post',
-            ]);
-        }
+    }
 
-        $like = Like::where('post_id', $request->post_id)->where('user_id', auth()->id())->first();
-        if ($like && $like->post_id == $request->post_id && $request->like) {
-            return response()->json([
-                'status' => 500,
-                'message' => 'You already liked this post',
-            ]);
-        } elseif ($like && $like->post_id == $request->post_id && ! $request->like) {
+    public function checkAlreadyExist($request)
+    {
+        $like = Like::where('post_id', $request->post_id)
+                    ->where('user_id', auth()->id())
+                    ->first();
+        
+        if($like && $request->like) {
+            return [
+                'status' => Response::HTTP_CONFLICT,
+                'message' => 'You already liked this post'
+            ];
+        }elseif($like && !$request->like) {
             $like->delete();
-
-            return response()->json([
-                'status' => 200,
-                'message' => 'You unlike this post successfully',
-            ]);
+            
+            return [
+                'status' => Response::HTTP_OK,
+                'message' => 'You unliked this post successfully'
+            ];
         }
 
+    }
+
+    public function createReaction($request)
+    {
         Like::create([
             'post_id' => $request->post_id,
-            'user_id' => auth()->id(),
+            'user_id' => auth()->id()
         ]);
-
-        return response()->json([
-            'status' => 200,
-            'message' => 'You like this post successfully',
-        ]);
+        
+        return [
+            'status' => Response::HTTP_CREATED,
+            'message' => 'You liked this post successfully'
+        ];
     }
 }
+

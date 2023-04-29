@@ -4,7 +4,7 @@ namespace App\Services\EmployeeManagement;
 
 interface Employee
 {
-    public function applyJob();
+    public function applyJob(): bool;
 
-    public function salary();
+    public function salary(): float;
 }
